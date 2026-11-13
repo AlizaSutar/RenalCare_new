@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Databases and patient data
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+uploads/
+patient_data/
+storage/
+
+# Logs and generated files
+*.log
+logs/
+reports/
+*.pdf
+
+# Frontend dependencies/build
+node_modules/
+dist/
+build/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Sensitive files
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+
