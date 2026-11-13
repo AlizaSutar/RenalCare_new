@@ -22,6 +22,30 @@
     return `<span class="pl-st ${color}">${label}</span>`;
   };
 
+  // Turns plain agent text into readable HTML: paragraphs, bullet lists, citation chips.
+  function plFmt(text) {
+    const inline = (s) => esc(s).replace(/\[([^\]]{3,120})\]/g, '<span class="pl-cite">$1</span>');
+    let html = "", open = false;
+    for (const raw of String(text || "").split(/\r?\n/)) {
+      const line = raw.trim();
+      const m = line.match(/^[-*\u2022]\s+(.*)/);
+      if (m) {
+        if (!open) { html += '<ul class="pl-list">'; open = true; }
+        html += `<li>${inline(m[1])}</li>`;
+        continue;
+      }
+      if (open) { html += "</ul>"; open = false; }
+      if (line) html += `<p>${inline(line)}</p>`;
+    }
+    if (open) html += "</ul>";
+    return html || '<p class="muted">No findings returned.</p>';
+  }
+
+  function plTransport(t) {
+    const a2a = String(t || "").toLowerCase() === "a2a";
+    return `<span class="pl-st ${a2a ? "ok" : "idle"}">${a2a ? "A2A message" : "In-process"}</span>`;
+  }
+
   function renderPipeline(r) {
     const agents = (r && r.agents) || [];
     const byId = Object.fromEntries(
@@ -145,13 +169,13 @@
           <h3>${esc(name)} ${plChip(agent.status)}</h3>
 
           <p class="pl-meta">
-            Transport: ${esc(transport.toUpperCase())}
-            · ${verification}
+            ${plTransport(agent.transport || agent.via)} · ${verification}
+            ${(agent.received_from || []).length
+              ? `<br>Received findings from: ${agent.received_from.map((x) => esc(PL_AGENTS[x] || x)).join(", ")}`
+              : "<br>First agent: no upstream findings"}
           </p>
 
-          <p>
-            ${esc(agent.answer || agent.error || "No findings returned.")}
-          </p>
+          <div class="pl-answer">${plFmt(agent.answer || agent.error)}</div>
 
           <p class="pl-meta">
             Tools used: ${tools}
@@ -172,7 +196,7 @@
     const summary = `
       <div class="pl-cites">
         <h3>Coordinator summary</h3>
-        <p>${esc(r.answer || "No combined summary returned.")}</p>
+        <div class="pl-answer">${plFmt(r.answer)}</div>
 
         <p class="field-hint">
           Coordinator verification:
@@ -192,7 +216,6 @@
 
     if (cur) cur.pipe = r;
   }
-
   // Run A2A coordinator
   $("#pipe-run").addEventListener("click", async (event) => {
     const mine = cur;

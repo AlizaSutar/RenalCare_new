@@ -17,38 +17,26 @@ from .llm import get_brain
 from .roles import COORDINATOR
 
 
+def _agent_cards(ctx_extra):
+    """One card per specialist the coordinator asked, in the shape doctor.js expects."""
+    return [{"id": rid, **res, "transport": ctx_extra["called"].get(rid)} for rid, res in ctx_extra["specialist_results"].items()]
+
+
 def run_coordinator(study_id, brain_for=get_brain):
     """brain_for(role) -> a brain. Defaults to get_brain (real model if configured, else scripted test brains)."""
-    ctx_extra = {
-    "brain_for": brain_for,
-    "called": {},
-    "specialist_results": {}
-}
+    ctx_extra = {"brain_for": brain_for, "called": {}, "specialist_results": {}}
     try:
         out = run_agent(COORDINATOR.goal, study_id, brain_for(COORDINATOR), role=COORDINATOR, ctx_extra=ctx_extra)
-    except Exception as e:                                     # even a bug here must not leave the doctor with nothing
+    except Exception as e:                       # even a bug here must not leave the doctor with nothing
         out = {"finished": False, "error": str(e)[:200], "trace": []}
     called = list(ctx_extra["called"])
     if out.get("finished"):
         v = out["verification"]
-        return {"mode": "agentic", "answer": out["answer"], "agents_called": called, "transport": dict(ctx_extra["called"]), "verification": v,
-                "needs_attention": not v["ok"], "brain": out["brain"], "trace": out["trace"]}
-    report = orchestrator.run(study_id)                        # the fixed pipeline
-    return {
-    "mode": "agentic",
-    "answer": out["answer"],
-    "agents_called": called,
-    "transport": dict(ctx_extra["called"]),
-    "agents": [
-        {
-            "id": role_id,
-            **result,
-            "transport": ctx_extra["called"].get(role_id)
-        }
-        for role_id, result in ctx_extra["specialist_results"].items()
-    ],
-    "verification": v,
-    "needs_attention": not v["ok"],
-    "brain": out["brain"],
-    "trace": out["trace"]
-}
+        return {"mode": "agentic", "answer": out["answer"], "agents_called": called,
+                "transport": dict(ctx_extra["called"]), "agents": _agent_cards(ctx_extra),
+                "verification": v, "needs_attention": not v["ok"],
+                "brain": out["brain"], "trace": out["trace"]}
+    report = orchestrator.run(study_id)          # the fixed pipeline
+    return {"mode": "fallback", "fallback_reason": out.get("error") or "The coordinator did not finish.",
+            "agents_called": called, "transport": dict(ctx_extra["called"]),
+            "agents": [], "report": report, "needs_attention": True}

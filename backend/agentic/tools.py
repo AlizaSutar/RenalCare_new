@@ -187,19 +187,11 @@ def ask_agent(ctx, role, task=""):
     if role in called:
         return {"error": f"'{role}' was already asked. Its answer is earlier in this conversation."}
 
-    # Findings from specialists that have already completed.
+    # Findings from specialists that have already completed (the A2A hand-off).
     specialist_results = ctx.setdefault("specialist_results", {})
-    upstream_context = {
-    role_id: {
-        key: result[key]
-        for key in (
-            "agent", "status", "answer", "error",
-            "verified", "tools_used", "passages", "flags"
-        )
-        if key in result
-    }
-    for role_id, result in specialist_results.items()
-}
+    keys = ("agent", "status", "answer", "error", "verified", "tools_used", "passages", "flags")
+    upstream_context = {rid: {k: res[k] for k in keys if k in res} for rid, res in specialist_results.items()}
+    received = list(upstream_context)                      # who this agent hears from (shown in the dashboard)
 
     called[role] = "pending"
     via = "in-process"
@@ -207,27 +199,17 @@ def ask_agent(ctx, role, task=""):
     if os.getenv("CKD_A2A") == "1":
         from a2a_agents.client import ask_via_a2a, A2AUnavailable
         try:
-            res = ask_via_a2a(
-                role,
-                ctx["study_id"],
-                task,
-                upstream_context=upstream_context
-            )
+            res = ask_via_a2a(role, ctx["study_id"], task, upstream_context=upstream_context)
             called[role] = res["via"] = "a2a"
+            res["received_from"] = received
             specialist_results[role] = res
             return res
         except A2AUnavailable as e:
             via = f"in-process (A2A unreachable: {str(e)[:60]})"
 
-    res = run_specialist(
-        role,
-        ctx["study_id"],
-        task,
-        ctx.get("brain_for"),
-        upstream_context=upstream_context
-    )
-
+    res = run_specialist(role, ctx["study_id"], task, ctx.get("brain_for"), upstream_context=upstream_context)
     called[role] = res["via"] = via
+    res["received_from"] = received
     specialist_results[role] = res
     return res
 

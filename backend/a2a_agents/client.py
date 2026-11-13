@@ -26,12 +26,10 @@ async def _ask(role_id, study_id, task, upstream_context=None):
     headers = {"Authorization": f"Bearer {config.token()}"} if config.token() else {}
     async with httpx.AsyncClient(headers=headers, timeout=config.timeout()) as hc:
         client = await create_client(config.url(role_id), client_config=ClientConfig(streaming=False, httpx_client=hc))
-        msg = Message(message_id=f"ckd-{role_id}-{study_id}", role=Role.ROLE_USER,
-                      parts=[Part(text=json.dumps({
-                        "study_id": study_id,
-                        "task": task,
-                        "upstream_context": upstream_context or {}
-                      }, ensure_ascii=False)[:5000])])
+        slim = {k: {"answer": (v.get("answer") or "")[:600], "status": v.get("status"), "verified": v.get("verified")}
+                for k, v in (upstream_context or {}).items()}          # trim the content, never the JSON text
+        payload = json.dumps({"study_id": study_id, "task": task, "upstream_context": slim}, ensure_ascii=False)
+        msg = Message(message_id=f"ckd-{role_id}-{study_id}", role=Role.ROLE_USER, parts=[Part(text=payload)])
         final = None
         async for ev in client.send_message(SendMessageRequest(message=msg)):
             if ev.HasField("task"):

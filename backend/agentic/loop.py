@@ -14,7 +14,7 @@ Guard rails (these are the 'safe agent' part, keep them):
 import json, time
 import db
 from .tools import TOOLS
-from .verify import verify
+from .verify import verify, allowed_citations
 
 
 def run_agent(goal, study_id, brain, max_steps=6, save=True, role=None, ctx_extra=None):
@@ -35,6 +35,8 @@ def run_agent(goal, study_id, brain, max_steps=6, save=True, role=None, ctx_extr
                    (pid, agent_name, json.dumps({"goal": goal, "brain": brain.name, "step": len(history)}, ensure_ascii=False),
                     json.dumps(data, default=str, ensure_ascii=False)[:15000], data.get("status", "ok")))
 
+    retried = repaired = False                                # one retry and one citation repair per run
+
     for step in range(1, max_steps + 1):
         try:
             decision = brain.next_step(goal, history, tool_list, **extra)
@@ -44,7 +46,23 @@ def run_agent(goal, study_id, brain, max_steps=6, save=True, role=None, ctx_extr
                     "error": "The model could not be reached or gave an unusable reply."}
 
         if decision["type"] == "final":
+            text = (decision.get("text") or "").strip()
+            if (not text or text.startswith("(the model returned no text)")) and not retried:
+                retried = True                                   # empty reply: ask once more
+                log("retry", {"reason": "empty reply", "status": "retry"})
+                history.append({"tool": "system_note", "args": {}, "result": {
+                    "note": "Your last reply was empty. Reply again with the final answer."}})
+                continue
             check = verify(decision["text"], history)            # independent plain-code check
+            cite_problem = any(p.startswith("no citation") or p.startswith("citations not backed") for p in check["problems"])
+            if cite_problem and not repaired and step < max_steps:
+                repaired = True                                  # wrong citation format: show the exact strings, ask once
+                options = allowed_citations(history)[:6]
+                log("retry", {"reason": "citation format", "status": "retry"})
+                history.append({"tool": "system_note", "args": {}, "result": {
+                    "note": "Rewrite your answer. Put each source in square brackets, copied exactly from this list: "
+                            + "; ".join(f"[{o}]" for o in options)}})
+                continue
             log("final", {"text": decision["text"], "verification": check})
             return {"answer": decision["text"], "trace": trace, "steps": step, "finished": True,
                     "verification": check, "brain": brain.name, "agent": agent_name}

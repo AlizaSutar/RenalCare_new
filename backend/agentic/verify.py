@@ -15,9 +15,24 @@ def _numbers(text):
     return {n.lstrip("+-").rstrip(".") for n in re.findall(r"[-+]?\d+(?:\.\d+)?", text)}
 
 
+def allowed_citations(history):
+    """The exact citation texts the tools returned, e.g. 'KDIGO 2024 CKD S197'. Used to ask a model to repair its answer."""
+    out = []
+    for h in history:
+        r = h["result"]
+        if not isinstance(r, dict):
+            continue
+        for p in r.get("passages", []):
+            out.append(f"{p['doc']} {p['page']}")
+        for f in r.get("flags", []):
+            if f.get("source"):
+                out.append(str(f["source"]))
+    return list(dict.fromkeys(out))
+
+
 def verify(answer, history):
     problems = []
-    if not answer or len(answer.strip()) < 20:
+    if not answer or len(answer.strip()) < 20 or answer.strip().startswith("(the model returned no text)"):
         return {"ok": False, "problems": ["empty answer"], "checked": {}}
     evidence = json.dumps([h["result"] for h in history], default=str)
     ev_numbers = _numbers(evidence)
@@ -39,6 +54,9 @@ def verify(answer, history):
     bad = [c for c in cites if c.lower() not in allowed and not any(c.lower() in a or a in c.lower() for a in allowed if a)]
     if bad:
         problems.append(f"citations not backed by a tool result: {bad[:3]}")
+    # 2b. sources were retrieved, so the answer must cite at least one of them
+    if allowed and not cites:
+        problems.append("no citation: guideline pages or care-gap sources were retrieved but the answer cites none")
     # 3. claims of action
     if CHANGE_CLAIMS.search(answer):
         problems.append("the answer claims an action was taken; agents only suggest")
